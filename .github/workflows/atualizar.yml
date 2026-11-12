@@ -1,0 +1,27 @@
+   name: Atualizar dados da CVM
+
+   on:
+     schedule:
+       - cron: "0 9 * * 1"   # toda segunda-feira, 6h de Brasília
+     workflow_dispatch:       # botão "Run workflow" para rodar na hora
+
+   permissions:
+     contents: write
+
+   jobs:
+     atualizar:
+       runs-on: ubuntu-latest
+       timeout-minutes: 40
+       steps:
+         - uses: actions/checkout@v4
+         - uses: actions/setup-python@v5
+           with:
+             python-version: "3.12"
+         - name: Baixar e processar formulários da CVM
+           run: python atualizar.py
+         - name: Salvar resultados no repositório
+           run: |
+             git config user.name "panorama-bot"
+             git config user.email "panorama-bot@users.noreply.github.com"
+             git add dados
+             git diff --cached --quiet || (git commit -m "Atualiza dados da CVM" && git push)
