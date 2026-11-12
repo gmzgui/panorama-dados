@@ -1,0 +1,69 @@
+{
+ "atualizado_em": "2026-11-12T00:09:50+00:00",
+ "fonte": "CVM — Portal de Dados Abertos (DFP/ITR/FCA)",
+ "ativos": {
+  "VALE3": {
+   "status": "ok",
+   "empresa": "VALE S.A.",
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
+  },
+  "PETR4": {
+   "status": "ok",
+   "empresa": "PETROLEO BRASILEIRO S.A. PETROBRAS",
+   "ultimo_trimestre": "2026-06-30",
+   "trimestres": 22
+  },
+  "ITUB4": {
+   "status": "ok",
+   "empresa": "ITAU UNIBANCO HOLDING S.A.",
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
+  },
+  "BPAC11": {
+   "status": "sem dados na CVM"
+  },
+  "PSSA3": {
+   "status": "ok",
+   "empresa": "PORTO SEGURO S.A.",
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
+  },
+  "ITSA4": {
+   "status": "ok",
+   "empresa": "ITAÚSA S.A.",
+   "ultimo_trimestre": "2026-06-30",
+   "trimestres": 22
+  },
+  "ABCB4": {
+   "status": "ok",
+   "empresa": "BCO ABC BRASIL S.A.",
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
+  },
+  "SAPR11": {
+   "status": "ok",
+   "empresa": "CIA SANEAMENTO DO PARANA - SANEPAR",
+   "ultimo_trimestre": "2026-06-30",
+   "trimestres": 22
+  },
+  "CMIG4": {
+   "status": "ok",
+   "empresa": "CIA ENERGETICA DE MINAS GERAIS - CEMIG",
+   "ultimo_trimestre": "2026-06-30",
+   "trimestres": 22
+  },
+  "DEXP3": {
+   "status": "ok",
+   "empresa": "DEXXOS PARTICIPAÇÕES S.A.",
+   "ultimo_trimestre": "2026-06-30",
+   "trimestres": 22
+  },
+  "SIMH3": {
+   "status": "ok",
+   "empresa": "SIMPAR S.A.",
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
+  }
+ }
+}
