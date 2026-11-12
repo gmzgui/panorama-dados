@@ -1,0 +1,13 @@
+# Um ticker por linha. Só ações de empresas (ETFs, FIIs e BDRs não têm balanço na CVM).
+# Para units, informe quantas ações formam 1 unit, ex.: "BPAC11 3" (as mais comuns já estão no código).
+VALE3
+PETR4
+ITUB4
+BPAC11
+PSSA3
+ITSA4
+ABCB4
+SAPR11
+CMIG4
+DEXP3
+SIMH3
