@@ -23,6 +23,9 @@ SAIDA = os.path.join(PASTA, "dados")
 CACHE = os.path.join(PASTA, ".cache")
 
 # Quantas ações formam uma unit (ticker terminado em 11 que não é FII/ETF).
+# CNPJ de emissores cujo ticker pode não aparecer no FCA (ex.: units). Pode sobrescrever no ativos.txt.
+CNPJ_PADRAO = {"BPAC11": "30306294000145"}
+
 UNITS_PADRAO = {"BPAC11": 3, "SAPR11": 5, "TAEE11": 3, "KLBN11": 5, "SANB11": 2, "ALUP11": 3, "ENGI11": 5}
 
 csv.field_size_limit(10_000_000)
@@ -216,7 +219,7 @@ def contas_dre(cd, ds):
         nomes.append("resultado_bruto")
     if nivel(cd) == 1 and "antes do resultado financeiro" in d:
         nomes.append("ebit")
-    if nivel(cd) == 1 and ("lucro" in d or "prejuizo" in d) and "periodo" in d and ("consolidado" in d or "liquido" in d):
+    if nivel(cd) == 1 and ("lucro" in d or "prejuizo" in d) and ("periodo" in d or "exercicio" in d) and "antes" not in d:
         nomes.append("lucro_liquido")
     if nivel(cd) == 2 and "controladora" in d and "nao" not in d and cd.startswith("3."):
         nomes.append("lucro_controladores")
@@ -339,6 +342,15 @@ def montar(cnpj, dfps, itrs):
                      "em_circulacao": total - (tesouraria or 0),
                      "ordinarias": num(l.get(on)) if on else None, "preferenciais": num(l.get(pn)) if pn else None}
 
+    # Algumas companhias informam a composição do capital em milhares de ações.
+    # Se o patrimônio por ação passar de R$ 1.000, a quantidade está em milhares.
+    if acoes and balancos:
+        pl_ref = balancos[-1].get("pl_controladores") or balancos[-1].get("pl")
+        if pl_ref and acoes["em_circulacao"] and pl_ref / acoes["em_circulacao"] > 1000:
+            for k in ("total", "tesouraria", "em_circulacao", "ordinarias", "preferenciais"):
+                if acoes.get(k) is not None:
+                    acoes[k] *= 1000
+            acoes["ajuste"] = "quantidade informada em milhares; multiplicada por 1.000"
     denom = next((l.get("DENOM_CIA") for l in todas_dre if l.get("DENOM_CIA")), None)
     cd_cvm = next((l.get("CD_CVM") for l in todas_dre if l.get("CD_CVM")), None)
     individual = any(l.get("_individual") for l in todas_dre)
@@ -382,6 +394,10 @@ def main():
                     if t[:4] == alvo[:4] and t != alvo:
                         mapa[alvo] = so_digitos(l.get(cn))
             break
+    for t in ativos:
+        if t not in mapa and t in CNPJ_PADRAO:
+            mapa[t] = CNPJ_PADRAO[t]
+            print(f"  {t}: usando CNPJ conhecido {mapa[t]}")
     for t in ativos:
         print(f"  {t}: {'CNPJ ' + mapa[t] if t in mapa else 'não encontrado na CVM (ETF, FII, BDR ou ticker errado)'}")
     cnpjs = set(mapa.values())
