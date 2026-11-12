@@ -1,5 +1,5 @@
 {
- "atualizado_em": "2026-11-12T00:09:50+00:00",
+ "atualizado_em": "2026-11-12T00:28:28+00:00",
  "fonte": "CVM — Portal de Dados Abertos (DFP/ITR/FCA)",
  "ativos": {
   "VALE3": {
@@ -21,7 +21,10 @@
    "trimestres": 23
   },
   "BPAC11": {
-   "status": "sem dados na CVM"
+   "status": "ok",
+   "empresa": "BCO BTG PACTUAL S.A.",
+   "ultimo_trimestre": "2026-06-30",
+   "trimestres": 22
   },
   "PSSA3": {
    "status": "ok",
