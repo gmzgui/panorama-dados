@@ -1,5 +1,5 @@
 {
- "atualizado_em": "2026-11-12T00:28:28+00:00",
+ "atualizado_em": "2026-11-16T12:14:20+00:00",
  "fonte": "CVM — Portal de Dados Abertos (DFP/ITR/FCA)",
  "ativos": {
   "VALE3": {
@@ -11,8 +11,8 @@
   "PETR4": {
    "status": "ok",
    "empresa": "PETROLEO BRASILEIRO S.A. PETROBRAS",
-   "ultimo_trimestre": "2026-06-30",
-   "trimestres": 22
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
   },
   "ITUB4": {
    "status": "ok",
@@ -35,8 +35,8 @@
   "ITSA4": {
    "status": "ok",
    "empresa": "ITAÚSA S.A.",
-   "ultimo_trimestre": "2026-06-30",
-   "trimestres": 22
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
   },
   "ABCB4": {
    "status": "ok",
@@ -47,20 +47,20 @@
   "SAPR11": {
    "status": "ok",
    "empresa": "CIA SANEAMENTO DO PARANA - SANEPAR",
-   "ultimo_trimestre": "2026-06-30",
-   "trimestres": 22
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
   },
   "CMIG4": {
    "status": "ok",
    "empresa": "CIA ENERGETICA DE MINAS GERAIS - CEMIG",
-   "ultimo_trimestre": "2026-06-30",
-   "trimestres": 22
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
   },
   "DEXP3": {
    "status": "ok",
    "empresa": "DEXXOS PARTICIPAÇÕES S.A.",
-   "ultimo_trimestre": "2026-06-30",
-   "trimestres": 22
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23
   },
   "SIMH3": {
    "status": "ok",
