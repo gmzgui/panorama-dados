@@ -15,7 +15,7 @@ Uso:  python atualizar.py            (anos padrão: últimos 6)
 """
 import csv, io, json, os, re, sys, unicodedata, urllib.request, zipfile
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 BASE = os.environ.get("CVM_BASE", "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC")
 PASTA = os.path.dirname(os.path.abspath(__file__))
@@ -156,9 +156,9 @@ def ultimo_versao(linhas_por_doc):
 
 
 def ler_formulario(zip_path, prefixo, cnpjs):
-    """Lê DRE/BPA/BPP (consolidado; individual se não houver) e composição do capital."""
-    out = {"DRE": [], "BPA": [], "BPP": [], "CAP": []}
-    for chave, padrao in (("DRE", r"_DRE_con_"), ("BPA", r"_BPA_con_"), ("BPP", r"_BPP_con_")):
+    """Lê DRE/BPA/BPP/DFC (consolidado; individual se não houver) e composição do capital."""
+    out = {"DRE": [], "BPA": [], "BPP": [], "DFC": [], "CAP": []}
+    for chave, padrao in (("DRE", r"_DRE_con_"), ("BPA", r"_BPA_con_"), ("BPP", r"_BPP_con_"), ("DFC", r"_DFC_MI_con_")):
         achou = set()
         for l in linhas_csv(zip_path, padrao) or []:
             c = so_digitos(l.get("CNPJ_CIA"))
@@ -223,7 +223,63 @@ def contas_dre(cd, ds):
         nomes.append("lucro_liquido")
     if nivel(cd) == 2 and "controladora" in d and "nao" not in d and cd.startswith("3."):
         nomes.append("lucro_controladores")
+    # resultado operacional (empresas comuns; em bancos e seguradoras os nomes das contas são outros)
+    if nivel(cd) == 1 and "custo" in d and "resultado" not in d:
+        nomes.append("custo")
+    if nivel(cd) == 1 and "despesas" in d and "operaciona" in d and "intermedia" not in d:
+        nomes.append("despesas_operacionais")
+    if nivel(cd) == 2 and cd.startswith("3.04.") and "vendas" in d:
+        nomes.append("despesas_vendas")
+    if nivel(cd) == 2 and cd.startswith("3.04.") and "administrativ" in d:
+        nomes.append("despesas_ga")
+    if nivel(cd) == 2 and cd.startswith("3.04.") and "equivalencia" in d:
+        nomes.append("equivalencia")
+    if nivel(cd) == 1 and d.startswith("resultado financeiro"):
+        nomes.append("resultado_financeiro")
+    if nivel(cd) == 1 and "antes" in d and "tributos" in d and "financeiro" not in d:
+        nomes.append("lair")
+    if nivel(cd) == 1 and "imposto de renda" in d:
+        nomes.append("ir")
     return nomes
+
+
+# Depreciação, amortização e exaustão: linhas de ajuste da DFC (método indireto), 6.01.01.xx
+NAO_DA = ("transac", "juros", "emprest", "financiamento", "debenture", "premio", "desagio", "ajuste a valor presente")
+
+
+def eh_da(cd, ds):
+    d = norm(ds)
+    if not cd.startswith("6.01.01.") or nivel(cd) != 3:
+        return False
+    if any(x in d for x in NAO_DA):
+        return False
+    return "deprecia" in d or "exaust" in d or "deple" in d or "amortiza" in d
+
+
+def valor_trimestre(tab, n, fim, calculados):
+    """Valor de 3 meses da conta n no trimestre que termina em fim.
+    Usa o valor trimestral; se faltar, deriva do acumulado no ano (YTD) menos o acumulado do trimestre anterior."""
+    f = date.fromisoformat(fim)
+    ini_tri = date(f.year, f.month - 2, 1).isoformat()
+    ini_ano = date(f.year, 1, 1).isoformat()
+    v = tab.get((n, ini_tri, fim))
+    if v is not None:
+        return v
+    ytd = tab.get((n, ini_ano, fim))
+    if ytd is None:
+        return None
+    if f.month == 3:
+        return ytd
+    fim_ant = (date(f.year, f.month - 2, 1) - timedelta(days=1)).isoformat()
+    ant = tab.get((n, ini_ano, fim_ant))
+    if ant is not None:
+        return ytd - ant
+    # sem o acumulado anterior: acumulado do ano − trimestres já calculados do mesmo ano
+    feitos = calculados.get(n, {})
+    anteriores = [v for ff, v in feitos.items() if ff[:4] == fim[:4] and ff < fim]
+    if len(anteriores) == f.month // 3 - 1 and all(x is not None for x in anteriores):
+        return ytd - sum(anteriores)
+    return None
 
 
 # ---------------------------------------------------------------- montagem por empresa
@@ -231,6 +287,7 @@ def montar(cnpj, dfps, itrs):
     """dfps/itrs: listas de dicts {DRE,BPA,BPP,CAP} já filtrados por versão."""
     # valores de DRE por (conta, inicio, fim) — só ÚLTIMO exercício
     dre = defaultdict(dict)
+    cod, desc = {}, {}
     todas_dre = []
     for bloco in dfps + itrs:
         for l in bloco["DRE"]:
@@ -243,47 +300,72 @@ def montar(cnpj, dfps, itrs):
             v = num(l.get("VL_CONTA"))
             if v is None:
                 continue
-            for nome in contas_dre(l.get("CD_CONTA", ""), l.get("DS_CONTA")):
+            cd = l.get("CD_CONTA", "")
+            for nome in contas_dre(cd, l.get("DS_CONTA")):
                 # se a mesma conta padronizada aparecer duas vezes no mesmo período, fica a 1ª (nível mais alto)
                 dre[(nome, ini, fim)].setdefault("v", v * escala(l))
+            # DRE completa por código de conta (níveis 1 e 2), para a tabela da ficha
+            if cd.startswith("3.") and nivel(cd) <= 2:
+                cod[(cd, ini, fim)] = v * escala(l)
+                desc.setdefault(cd, {})[fim] = (l.get("DS_CONTA") or "").strip()
     tipo = tipo_empresa(todas_dre)
+
+    # DFC: depreciação/amortização (para o EBITDA) e caixa das operações — sempre acumulado no ano
+    dfc = defaultdict(float)
+    for bloco in dfps + itrs:
+        for l in bloco.get("DFC", []):
+            if so_digitos(l.get("CNPJ_CIA")) != cnpj or not norm(l.get("ORDEM_EXERC")).startswith("ultimo"):
+                continue
+            ini, fim, cd = l.get("DT_INI_EXERC"), l.get("DT_FIM_EXERC"), l.get("CD_CONTA", "")
+            v = num(l.get("VL_CONTA"))
+            if not ini or not fim or v is None:
+                continue
+            v *= escala(l)
+            if eh_da(cd, l.get("DS_CONTA")):
+                dfc[("da", ini, fim)] += v
+            elif cd == "6.01":
+                dfc[("fco", ini, fim)] = v
 
     # trimestres: valores de 3 meses; se faltar, deriva de acumulados (YTD)
     fins = sorted({fim for (_, ini, fim) in dre})
     nomes = ["receita", "resultado_bruto", "ebit", "lucro_liquido", "lucro_controladores"]
+    extras = ["custo", "despesas_operacionais", "despesas_vendas", "despesas_ga", "equivalencia",
+              "resultado_financeiro", "lair", "ir"]
+    tab = {k: d["v"] for k, d in dre.items()}
+    codigos = sorted({c for (c, _, _) in cod}, key=lambda c: [int(x) for x in c.split(".")])
+    calc, calc_cod, calc_dfc = {}, {}, {}
     trimestres = []
     for fim in fins:
         f = date.fromisoformat(fim)
         if f.month not in (3, 6, 9, 12):
             continue
-        ini_tri = date(f.year, f.month - 2, 1).isoformat()
-        ini_ano = date(f.year, 1, 1).isoformat()
         linha = {"fim": fim}
         tem = False
-        for n in nomes:
-            v = dre.get((n, ini_tri, fim), {}).get("v")
-            if v is None:
-                ytd = dre.get((n, ini_ano, fim), {}).get("v")
-                if ytd is not None and f.month == 3:
-                    v = ytd
-                elif ytd is not None:
-                    # acumulado até o trimestre anterior
-                    ant = None
-                    for (nn, ii, ff), dd in dre.items():
-                        if nn == n and ii == ini_ano and ff < fim and date.fromisoformat(ff).month == f.month - 3:
-                            ant = dd["v"]
-                    if ant is not None:
-                        v = ytd - ant
-                    else:
-                        # sem o acumulado anterior: acumulado do ano − trimestres já calculados do mesmo ano
-                        anteriores = [t.get(n) for t in trimestres if t["fim"][:4] == fim[:4] and t["fim"] < fim]
-                        if len(anteriores) == f.month // 3 - 1 and all(x is not None for x in anteriores):
-                            v = ytd - sum(anteriores)
-            if v is not None:
+        for n in nomes + extras:
+            v = valor_trimestre(tab, n, fim, calc)
+            calc.setdefault(n, {})[fim] = v
+            if v is not None and n in nomes:
                 tem = True
+            if n in nomes or v is not None:
+                linha[n] = v
+        if not tem:
+            continue
+        # depreciação/amortização, EBITDA (critério ICVM 527: EBIT + D&A) e caixa das operações
+        for n in ("da", "fco"):
+            v = valor_trimestre(dfc, n, fim, calc_dfc)
+            calc_dfc.setdefault(n, {})[fim] = v
             linha[n] = v
-        if tem:
-            trimestres.append(linha)
+        linha["ebitda"] = linha["ebit"] + linha["da"] if linha.get("ebit") is not None and linha.get("da") is not None else None
+        # DRE completa: [código, descrição, valor do trimestre]
+        contas = []
+        for c in codigos:
+            v = valor_trimestre(cod, c, fim, calc_cod)
+            calc_cod.setdefault(c, {})[fim] = v
+            if v is not None:
+                ds = desc[c].get(fim) or desc[c][max(desc[c])]
+                contas.append([c, ds, round(v)])
+        linha["dre"] = contas
+        trimestres.append(linha)
 
     # balanço por data de referência (ÚLTIMO)
     bal = defaultdict(dict)
@@ -363,7 +445,7 @@ def ttm(trimestres):
     if len(ult) < 4:
         return None
     out = {"periodo": f"{ult[0]['fim'][:7]} a {ult[-1]['fim'][:7]}"}
-    for n in ("receita", "resultado_bruto", "ebit", "lucro_liquido", "lucro_controladores"):
+    for n in ("receita", "resultado_bruto", "ebit", "ebitda", "da", "lucro_liquido", "lucro_controladores", "fco"):
         vals = [t.get(n) for t in ult]
         out[n] = sum(vals) if all(v is not None for v in vals) else None
     return out
@@ -413,7 +495,7 @@ def main():
             if not z:
                 continue
             bloco = ler_formulario(z, tipo, cnpjs)
-            for k in ("DRE", "BPA", "BPP", "CAP"):
+            for k in ("DRE", "BPA", "BPP", "DFC", "CAP"):
                 bloco[k] = filtra_ultima_versao(bloco[k])
             lista.append(bloco)
             print(f"  {tipo} {ano}: {sum(len(v) for v in bloco.values())} linhas das empresas", flush=True)
