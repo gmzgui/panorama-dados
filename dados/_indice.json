@@ -1,5 +1,5 @@
 {
- "atualizado_em": "2026-11-20T13:40:52+00:00",
+ "atualizado_em": "2026-11-20T14:07:41+00:00",
  "fonte": "CVM — Portal de Dados Abertos (DFP/ITR/FCA)",
  "ativos": {
   "VALE3": {
@@ -106,6 +106,17 @@
    "demonstracoes": "consolidado",
    "tipo": "geral",
    "avisos": []
+  },
+  "BBSE3": {
+   "status": "ok",
+   "empresa": "BB SEGURIDADE PARTICIPAÇÕES S.A.",
+   "ultimo_trimestre": "2026-09-30",
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "seguradora",
+   "avisos": [
+    "Somas da DRE não fecham em 2024-12-31, 2025-03-31, 2025-06-30, 2025-09-30, 2025-12-31, 2026-03-31, 2026-06-30, 2026-09-30: confira esses trimestres no release da empresa."
+   ]
   }
  }
 }
