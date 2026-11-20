@@ -10,6 +10,10 @@ Fontes (Portal de Dados Abertos da CVM):
   ITR  (trimestral):     /dados/CIA_ABERTA/DOC/ITR/DADOS/itr_cia_aberta_<ano>.zip
   DFP  (anual):          /dados/CIA_ABERTA/DOC/DFP/DADOS/dfp_cia_aberta_<ano>.zip
 
+Versão 2 (19/11/2026): uma base (consolidado OU individual) por empresa em todos os anos; lucro dos
+controladores conferido contra o lucro do período; tipo "seguradora" (PSSA3); conferência das somas
+da DRE por trimestre; erro ou download falho em uma empresa não apaga nem derruba as outras.
+
 Uso:  python atualizar.py            (anos padrão: últimos 6)
       python atualizar.py --anos 3
 """
@@ -27,6 +31,12 @@ CACHE = os.path.join(PASTA, ".cache")
 CNPJ_PADRAO = {"BPAC11": "30306294000145"}
 
 UNITS_PADRAO = {"BPAC11": 3, "SAPR11": 5, "TAEE11": 3, "KLBN11": 5, "SANB11": 2, "ALUP11": 3, "ENGI11": 5}
+
+# Tipo de empresa quando a DRE da CVM não deixa claro (ex.: Porto Seguro publica no modelo de empresa comum,
+# mas as aplicações da seguradora não são "caixa" e EV/dívida líquida não fazem sentido).
+# Pode sobrescrever no ativos.txt: "PSSA3 seguradora", "XXXX3 banco" ou "XXXX3 geral".
+TIPO_PADRAO = {"PSSA3": "seguradora", "BBSE3": "seguradora", "CXSE3": "seguradora", "IRBR3": "seguradora", "WIZC3": "seguradora"}
+TIPOS = ("geral", "banco", "seguradora")
 
 csv.field_size_limit(10_000_000)
 
@@ -113,7 +123,9 @@ def ler_ativos():
             t = partes[0].upper()
             ativos.append(t)
             for p in partes[1:]:
-                if p.isdigit():
+                if p.lower() in TIPOS:
+                    units["__tipo__" + t] = p.lower()
+                elif p.isdigit():
                     units[t] = int(p)
                 elif re.fullmatch(r"\d{14}", so_digitos(p)):
                     units.setdefault("__cnpj__" + t, so_digitos(p))
@@ -156,21 +168,15 @@ def ultimo_versao(linhas_por_doc):
 
 
 def ler_formulario(zip_path, prefixo, cnpjs):
-    """Lê DRE/BPA/BPP/DFC (consolidado; individual se não houver) e composição do capital."""
+    """Lê as duas bases (consolidado e individual), marcadas em "_base". A escolha de UMA base por
+    empresa, igual para todos os anos, é feita em montar(): misturar as duas entre anos estraga os
+    trimestres calculados por diferença (ex.: 4º tri = DFP consolidada − 9 meses do ITR individual)."""
     out = {"DRE": [], "BPA": [], "BPP": [], "DFC": [], "CAP": []}
     for chave, padrao in (("DRE", r"_DRE_con_"), ("BPA", r"_BPA_con_"), ("BPP", r"_BPP_con_"), ("DFC", r"_DFC_MI_con_")):
-        achou = set()
-        for l in linhas_csv(zip_path, padrao) or []:
-            c = so_digitos(l.get("CNPJ_CIA"))
-            if c in cnpjs:
-                out[chave].append(l)
-                achou.add(c)
-        faltam = cnpjs - achou
-        if faltam:  # empresas que só publicam o individual
-            for l in linhas_csv(zip_path, padrao.replace("_con_", "_ind_")) or []:
-                c = so_digitos(l.get("CNPJ_CIA"))
-                if c in faltam:
-                    l["_individual"] = "1"
+        for base, pad in (("con", padrao), ("ind", padrao.replace("_con_", "_ind_"))):
+            for l in linhas_csv(zip_path, pad) or []:
+                if so_digitos(l.get("CNPJ_CIA")) in cnpjs:
+                    l["_base"] = base
                     out[chave].append(l)
     for l in linhas_csv(zip_path, r"composicao_capital") or []:
         if so_digitos(l.get("CNPJ_CIA")) in cnpjs:
@@ -223,6 +229,8 @@ def contas_dre(cd, ds):
         nomes.append("lucro_liquido")
     if nivel(cd) == 2 and "controladora" in d and "nao" not in d and cd.startswith("3."):
         nomes.append("lucro_controladores")
+    if nivel(cd) == 2 and "nao controlador" in d and cd.startswith("3."):
+        nomes.append("lucro_minoritarios")
     # resultado operacional (empresas comuns; em bancos e seguradoras os nomes das contas são outros)
     if nivel(cd) == 1 and "custo" in d and "resultado" not in d:
         nomes.append("custo")
@@ -283,16 +291,73 @@ def valor_trimestre(tab, n, fim, calculados):
 
 
 # ---------------------------------------------------------------- montagem por empresa
-def montar(cnpj, dfps, itrs):
-    """dfps/itrs: listas de dicts {DRE,BPA,BPP,CAP} já filtrados por versão."""
+def escolher_base(cnpj, itrs, dfps):
+    """Uma base só por empresa: a que cobre mais fins de trimestre na DRE (empate → consolidado)."""
+    cob = {"con": set(), "ind": set()}
+    for bloco in itrs + dfps:
+        for l in bloco["DRE"]:
+            if so_digitos(l.get("CNPJ_CIA")) == cnpj and norm(l.get("ORDEM_EXERC")).startswith("ultimo"):
+                cob.setdefault(l.get("_base", "con"), set()).add(l.get("DT_FIM_EXERC"))
+    return "con" if len(cob["con"]) >= len(cob["ind"]) and cob["con"] else ("ind" if cob["ind"] else "con")
+
+
+def da_empresa(bloco, chave, cnpj, base):
+    for l in bloco.get(chave, []):
+        if so_digitos(l.get("CNPJ_CIA")) == cnpj and l.get("_base", "con") == base and norm(l.get("ORDEM_EXERC")).startswith("ultimo"):
+            yield l
+
+
+def corrigir_controladores(tab, cod, cd_nome):
+    """Lucro dos controladores coerente com o lucro do período, em cada período informado (antes de
+    calcular trimestres por diferença). Algumas empresas deixam 3.11.01 zerado no ITR (ex.: Dexxos):
+    sem a correção, o 4º trimestre (anual − 9 meses) sai inflado e o P/L/ROE ficam errados."""
+    ajustes = []
+    for (n, ini, fim) in list(tab):
+        if n != "lucro_liquido":
+            continue
+        luc = tab[(n, ini, fim)]
+        c = tab.get(("lucro_controladores", ini, fim))
+        m = tab.get(("lucro_minoritarios", ini, fim)) or 0.0
+        if c is None or luc is None:
+            continue
+        tol = max(0.01 * abs(luc), 5e3)  # CVM arredonda em milhares de reais
+        if abs(c + m - luc) <= tol:
+            continue
+        novo = luc - m
+        tab[("lucro_controladores", ini, fim)] = novo
+        cd = cd_nome.get(("lucro_controladores", ini, fim))
+        if cd and (cd, ini, fim) in cod:
+            cod[(cd, ini, fim)] = novo
+        ajustes.append(f"{ini} a {fim}: lucro dos controladores informado {c/1e6:.1f} mi não fecha com o lucro "
+                       f"{luc/1e6:.1f} mi − minoritários {m/1e6:.1f} mi; usado {novo/1e6:.1f} mi")
+    return ajustes
+
+
+def conferir_trimestre(contas, tipo):
+    """Confere as somas da DRE do trimestre. Devolve a lista de problemas (vazia = ok)."""
+    x = {c: v for c, _, v in contas}
+    probs = []
+    def ok(a, b):
+        return a is None or b is None or abs(a - b) <= max(0.02 * max(abs(a), abs(b)), 5e3)
+    g = x.get
+    if tipo == "geral" and g("3.03") is not None and g("3.01") is not None and g("3.02") is not None and not ok(g("3.03"), g("3.01") + g("3.02")):
+        probs.append("lucro bruto ≠ receita + custo")
+    if g("3.05") is not None and g("3.03") is not None and g("3.04") is not None and not ok(g("3.05"), g("3.03") + g("3.04")):
+        probs.append("EBIT ≠ lucro bruto + despesas operacionais")
+    if g("3.11") is not None and g("3.09") is not None and not ok(g("3.11"), g("3.09") + (g("3.10") or 0)):
+        probs.append("lucro do período ≠ operações continuadas + descontinuadas")
+    return probs
+
+
+def montar(cnpj, dfps, itrs, tipo_forcado=None):
+    """dfps/itrs: listas de dicts {DRE,BPA,BPP,DFC,CAP} já filtrados por versão."""
+    base = escolher_base(cnpj, itrs, dfps)
     # valores de DRE por (conta, inicio, fim) — só ÚLTIMO exercício
     dre = defaultdict(dict)
-    cod, desc = {}, {}
+    cod, desc, cd_nome = {}, {}, {}
     todas_dre = []
     for bloco in dfps + itrs:
-        for l in bloco["DRE"]:
-            if so_digitos(l.get("CNPJ_CIA")) != cnpj or not norm(l.get("ORDEM_EXERC")).startswith("ultimo"):
-                continue
+        for l in da_empresa(bloco, "DRE", cnpj, base):
             todas_dre.append(l)
             ini, fim = l.get("DT_INI_EXERC"), l.get("DT_FIM_EXERC")
             if not ini or not fim:
@@ -303,19 +368,19 @@ def montar(cnpj, dfps, itrs):
             cd = l.get("CD_CONTA", "")
             for nome in contas_dre(cd, l.get("DS_CONTA")):
                 # se a mesma conta padronizada aparecer duas vezes no mesmo período, fica a 1ª (nível mais alto)
-                dre[(nome, ini, fim)].setdefault("v", v * escala(l))
+                if "v" not in dre[(nome, ini, fim)]:
+                    dre[(nome, ini, fim)]["v"] = v * escala(l)
+                    cd_nome[(nome, ini, fim)] = cd
             # DRE completa por código de conta (níveis 1 e 2), para a tabela da ficha
             if cd.startswith("3.") and nivel(cd) <= 2:
                 cod[(cd, ini, fim)] = v * escala(l)
                 desc.setdefault(cd, {})[fim] = (l.get("DS_CONTA") or "").strip()
-    tipo = tipo_empresa(todas_dre)
+    tipo = tipo_forcado or tipo_empresa(todas_dre)
 
     # DFC: depreciação/amortização (para o EBITDA) e caixa das operações — sempre acumulado no ano
     dfc = defaultdict(float)
     for bloco in dfps + itrs:
-        for l in bloco.get("DFC", []):
-            if so_digitos(l.get("CNPJ_CIA")) != cnpj or not norm(l.get("ORDEM_EXERC")).startswith("ultimo"):
-                continue
+        for l in da_empresa(bloco, "DFC", cnpj, base):
             ini, fim, cd = l.get("DT_INI_EXERC"), l.get("DT_FIM_EXERC"), l.get("CD_CONTA", "")
             v = num(l.get("VL_CONTA"))
             if not ini or not fim or v is None:
@@ -332,6 +397,7 @@ def montar(cnpj, dfps, itrs):
     extras = ["custo", "despesas_operacionais", "despesas_vendas", "despesas_ga", "equivalencia",
               "resultado_financeiro", "lair", "ir"]
     tab = {k: d["v"] for k, d in dre.items()}
+    ajustes = corrigir_controladores(tab, cod, cd_nome)
     codigos = sorted({c for (c, _, _) in cod}, key=lambda c: [int(x) for x in c.split(".")])
     calc, calc_cod, calc_dfc = {}, {}, {}
     trimestres = []
@@ -339,7 +405,9 @@ def montar(cnpj, dfps, itrs):
         f = date.fromisoformat(fim)
         if f.month not in (3, 6, 9, 12):
             continue
-        linha = {"fim": fim}
+        # "trimestral" = a CVM informou os 3 meses; "diferenca" = acumulado do ano − acumulado anterior
+        ini_tri = date(f.year, f.month - 2, 1).isoformat()
+        linha = {"fim": fim, "origem": "trimestral" if ("lucro_liquido", ini_tri, fim) in tab or f.month == 3 else "diferenca"}
         tem = False
         for n in nomes + extras:
             v = valor_trimestre(tab, n, fim, calc)
@@ -365,15 +433,16 @@ def montar(cnpj, dfps, itrs):
                 ds = desc[c].get(fim) or desc[c][max(desc[c])]
                 contas.append([c, ds, round(v)])
         linha["dre"] = contas
+        probs = conferir_trimestre(contas, tipo)
+        if probs:
+            linha["conferencia"] = probs
         trimestres.append(linha)
 
     # balanço por data de referência (ÚLTIMO)
     bal = defaultdict(dict)
     for bloco in dfps + itrs:
         for chave in ("BPA", "BPP"):
-            for l in bloco[chave]:
-                if so_digitos(l.get("CNPJ_CIA")) != cnpj or not norm(l.get("ORDEM_EXERC")).startswith("ultimo"):
-                    continue
+            for l in da_empresa(bloco, chave, cnpj, base):
                 ref = l.get("DT_FIM_EXERC") or l.get("DT_REFER")
                 cd, d = l.get("CD_CONTA", ""), norm(l.get("DS_CONTA"))
                 v = num(l.get("VL_CONTA"))
@@ -435,9 +504,15 @@ def montar(cnpj, dfps, itrs):
             acoes["ajuste"] = "quantidade informada em milhares; multiplicada por 1.000"
     denom = next((l.get("DENOM_CIA") for l in todas_dre if l.get("DENOM_CIA")), None)
     cd_cvm = next((l.get("CD_CVM") for l in todas_dre if l.get("CD_CVM")), None)
-    individual = any(l.get("_individual") for l in todas_dre)
-    return {"empresa": denom, "cnpj": cnpj, "cd_cvm": cd_cvm, "tipo": tipo, "demonstracoes": "individual" if individual else "consolidado",
-            "trimestres": trimestres[-24:], "balancos": balancos[-12:], "acoes": acoes}
+    avisos = []
+    if base == "ind":
+        avisos.append("Demonstrações individuais (a empresa não publica o consolidado no ITR): o lucro pode diferir do consolidado do release.")
+    ult = trimestres[-24:]
+    ruins = [t["fim"] for t in ult[-8:] if t.get("conferencia")]
+    if ruins:
+        avisos.append("Somas da DRE não fecham em " + ", ".join(ruins) + ": confira esses trimestres no release da empresa.")
+    return {"empresa": denom, "cnpj": cnpj, "cd_cvm": cd_cvm, "tipo": tipo, "demonstracoes": "individual" if base == "ind" else "consolidado",
+            "trimestres": ult, "balancos": balancos[-12:], "acoes": acoes, "avisos": avisos, "ajustes": ajustes[-12:]}
 
 
 def ttm(trimestres):
@@ -488,11 +563,14 @@ def main():
         return 1
 
     print("2/3 Lendo DFP (anual) e ITR (trimestral)…")
-    dfps, itrs = [], []
+    dfps, itrs, faltou = [], [], []
     for ano in anos:
         for tipo, lista in (("DFP", dfps), ("ITR", itrs)):
             z = baixar(f"{BASE}/{tipo}/DADOS/{tipo.lower()}_cia_aberta_{ano}.zip")
             if not z:
+                # o DFP do ano corrente ainda não existe; qualquer outro arquivo faltando é falha de download
+                if not (tipo == "DFP" and ano == hoje.year):
+                    faltou.append(f"{tipo} {ano}")
                 continue
             bloco = ler_formulario(z, tipo, cnpjs)
             for k in ("DRE", "BPA", "BPP", "DFC", "CAP"):
@@ -504,22 +582,55 @@ def main():
     os.makedirs(SAIDA, exist_ok=True)
     agora = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     indice = {"atualizado_em": agora, "fonte": "CVM — Portal de Dados Abertos (DFP/ITR/FCA)", "ativos": {}}
+    if faltou:
+        print(f"  ! arquivos que não baixaram: {', '.join(faltou)} — quem ficar com menos dados mantém o arquivo anterior")
+    erros = 0
     for t in ativos:
         if t not in mapa:
             indice["ativos"][t] = {"status": "sem dados na CVM"}
             continue
-        r = montar(mapa[t], dfps, itrs)
-        r.update({"ticker": t, "acoes_por_unit": extras.get(t, 1), "ttm": ttm(r["trimestres"]),
-                  "atualizado_em": agora, "fonte": "CVM — Portal de Dados Abertos (DFP/ITR)",
-                  "unidade": "R$ (valores já convertidos da escala da CVM)"})
-        with open(os.path.join(SAIDA, f"{t}.json"), "w", encoding="utf-8") as f:
-            json.dump(r, f, ensure_ascii=False, separators=(",", ":"))
-        ult = r["trimestres"][-1]["fim"] if r["trimestres"] else None
-        indice["ativos"][t] = {"status": "ok", "empresa": r["empresa"], "ultimo_trimestre": ult, "trimestres": len(r["trimestres"])}
-        print(f"  {t}: {r['empresa']} · {len(r['trimestres'])} trimestres · último {ult} · tipo {r['tipo']}")
+        destino = os.path.join(SAIDA, f"{t}.json")
+        antigo = None
+        if os.path.exists(destino):
+            try:
+                with open(destino, encoding="utf-8") as f:
+                    antigo = json.load(f)
+            except Exception:
+                antigo = None
+        try:
+            tipo_t = extras.get("__tipo__" + t) or TIPO_PADRAO.get(t)
+            r = montar(mapa[t], dfps, itrs, tipo_t)
+            if not r["trimestres"]:
+                raise ValueError("nenhum trimestre encontrado")
+            r.update({"ticker": t, "acoes_por_unit": extras.get(t, 1), "ttm": ttm(r["trimestres"]),
+                      "atualizado_em": agora, "fonte": "CVM — Portal de Dados Abertos (DFP/ITR)",
+                      "unidade": "R$ (valores já convertidos da escala da CVM)"})
+            ult = r["trimestres"][-1]["fim"]
+            ult_ant = antigo["trimestres"][-1]["fim"] if antigo and antigo.get("trimestres") else None
+            if ult_ant and ult < ult_ant:
+                # download incompleto: não troca dados bons por dados com menos trimestres
+                indice["ativos"][t] = {"status": "mantido (download incompleto)", "empresa": antigo.get("empresa"),
+                                       "ultimo_trimestre": ult_ant, "trimestres": len(antigo["trimestres"])}
+                print(f"  {t}: novo último trimestre {ult} é anterior ao já gravado {ult_ant}; arquivo anterior mantido")
+                continue
+            with open(destino, "w", encoding="utf-8") as f:
+                json.dump(r, f, ensure_ascii=False, separators=(",", ":"))
+            indice["ativos"][t] = {"status": "ok", "empresa": r["empresa"], "ultimo_trimestre": ult, "trimestres": len(r["trimestres"]),
+                                   "demonstracoes": r["demonstracoes"], "tipo": r["tipo"], "avisos": r["avisos"]}
+            print(f"  {t}: {r['empresa']} · {len(r['trimestres'])} trimestres · último {ult} · tipo {r['tipo']} · {r['demonstracoes']}")
+            for a in r["ajustes"]:
+                print(f"     ajuste: {a}")
+            for a in r["avisos"]:
+                print(f"     aviso: {a}")
+        except Exception as e:  # erro em uma empresa não derruba as outras
+            erros += 1
+            indice["ativos"][t] = {"status": f"erro: {e}" + (" (arquivo anterior mantido)" if antigo else "")}
+            print(f"  ! {t}: erro ao montar ({e}); {'arquivo anterior mantido' if antigo else 'sem arquivo'}")
+    if faltou:
+        indice["downloads_falharam"] = faltou
     with open(os.path.join(SAIDA, "_indice.json"), "w", encoding="utf-8") as f:
         json.dump(indice, f, ensure_ascii=False, indent=1)
-    print("Pronto.")
+    print("Pronto." + (f" ({erros} empresa(s) com erro)" if erros else ""))
     return 0
 
 
