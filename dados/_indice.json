@@ -1,72 +1,112 @@
 {
- "atualizado_em": "2026-11-16T19:11:12+00:00",
+ "atualizado_em": "2026-11-20T03:11:23+00:00",
  "fonte": "CVM — Portal de Dados Abertos (DFP/ITR/FCA)",
  "ativos": {
   "VALE3": {
    "status": "ok",
    "empresa": "VALE S.A.",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "geral",
+   "avisos": []
   },
   "PETR4": {
    "status": "ok",
    "empresa": "PETROLEO BRASILEIRO S.A. PETROBRAS",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "geral",
+   "avisos": []
   },
   "ITUB4": {
    "status": "ok",
    "empresa": "ITAU UNIBANCO HOLDING S.A.",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "banco",
+   "avisos": []
   },
   "BPAC11": {
    "status": "ok",
    "empresa": "BCO BTG PACTUAL S.A.",
    "ultimo_trimestre": "2026-06-30",
-   "trimestres": 22
+   "trimestres": 22,
+   "demonstracoes": "individual",
+   "tipo": "banco",
+   "avisos": [
+    "Demonstrações individuais (a empresa não publica o consolidado no ITR): o lucro pode diferir do consolidado do release.",
+    "Somas da DRE não fecham em 2024-09-30, 2024-12-31, 2025-03-31, 2025-06-30, 2025-09-30, 2025-12-31, 2026-03-31, 2026-06-30: confira esses trimestres no release da empresa."
+   ]
   },
   "PSSA3": {
    "status": "ok",
    "empresa": "PORTO SEGURO S.A.",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "seguradora",
+   "avisos": []
   },
   "ITSA4": {
    "status": "ok",
    "empresa": "ITAÚSA S.A.",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "geral",
+   "avisos": []
   },
   "ABCB4": {
    "status": "ok",
    "empresa": "BCO ABC BRASIL S.A.",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "individual",
+   "tipo": "banco",
+   "avisos": [
+    "Demonstrações individuais (a empresa não publica o consolidado no ITR): o lucro pode diferir do consolidado do release."
+   ]
   },
   "SAPR11": {
    "status": "ok",
    "empresa": "CIA SANEAMENTO DO PARANA - SANEPAR",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "individual",
+   "tipo": "geral",
+   "avisos": [
+    "Demonstrações individuais (a empresa não publica o consolidado no ITR): o lucro pode diferir do consolidado do release."
+   ]
   },
   "CMIG4": {
    "status": "ok",
    "empresa": "CIA ENERGETICA DE MINAS GERAIS - CEMIG",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "geral",
+   "avisos": []
   },
   "DEXP3": {
    "status": "ok",
    "empresa": "DEXXOS PARTICIPAÇÕES S.A.",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "geral",
+   "avisos": []
   },
   "SIMH3": {
    "status": "ok",
    "empresa": "SIMPAR S.A.",
    "ultimo_trimestre": "2026-09-30",
-   "trimestres": 23
+   "trimestres": 23,
+   "demonstracoes": "consolidado",
+   "tipo": "geral",
+   "avisos": []
   }
  }
 }
