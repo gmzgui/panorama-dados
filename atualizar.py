@@ -10,6 +10,7 @@ Fontes (Portal de Dados Abertos da CVM):
   ITR  (trimestral):     /dados/CIA_ABERTA/DOC/ITR/DADOS/itr_cia_aberta_<ano>.zip
   DFP  (anual):          /dados/CIA_ABERTA/DOC/DFP/DADOS/dfp_cia_aberta_<ano>.zip
 
+Versão 2.1 (20/11/2026): conferência da DRE não acusa mais os bancos no modelo COSIF (3.11 = reversão de JCP).
 Versão 2 (19/11/2026): uma base (consolidado OU individual) por empresa em todos os anos; lucro dos
 controladores conferido contra o lucro do período; tipo "seguradora" (PSSA3); conferência das somas
 da DRE por trimestre; erro ou download falho em uma empresa não apaga nem derruba as outras.
@@ -336,6 +337,7 @@ def corrigir_controladores(tab, cod, cd_nome):
 def conferir_trimestre(contas, tipo):
     """Confere as somas da DRE do trimestre. Devolve a lista de problemas (vazia = ok)."""
     x = {c: v for c, _, v in contas}
+    ds = {c: norm(d) for c, d, _ in contas}
     probs = []
     def ok(a, b):
         return a is None or b is None or abs(a - b) <= max(0.02 * max(abs(a), abs(b)), 5e3)
@@ -344,7 +346,9 @@ def conferir_trimestre(contas, tipo):
         probs.append("lucro bruto ≠ receita + custo")
     if g("3.05") is not None and g("3.03") is not None and g("3.04") is not None and not ok(g("3.05"), g("3.03") + g("3.04")):
         probs.append("EBIT ≠ lucro bruto + despesas operacionais")
-    if g("3.11") is not None and g("3.09") is not None and not ok(g("3.11"), g("3.09") + (g("3.10") or 0)):
+    # bancos (modelo COSIF) usam 3.11 para "Reversão dos JCP" e o lucro fica em 3.13: só confere quando 3.11 é o lucro
+    eh_lucro = "lucro" in ds.get("3.11", "") or "prejuizo" in ds.get("3.11", "")
+    if eh_lucro and g("3.11") is not None and g("3.09") is not None and not ok(g("3.11"), g("3.09") + (g("3.10") or 0)):
         probs.append("lucro do período ≠ operações continuadas + descontinuadas")
     return probs
 
